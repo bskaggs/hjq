@@ -1,4 +1,10 @@
 hjq: jq for Hadoop MapReduce
 ============================
 
-There's nothing here yet.  Why don't you go look at [jjq](https://github.com/bskaggs/jjq)?
+hjq let's you run jq in Hadoop MapReduce.
+
+Map-only example:
+`hjq --input input --output output --mapper '{name, size: .wins | length}`
+
+If you use a reducer, your mapper must spit out objects with "key" and "value" fields:
+`hjq --input input --output output --mapper '{key: .name, value: .wins}'  --reducer '{name: .[0].key, len: .[] | length}'`
