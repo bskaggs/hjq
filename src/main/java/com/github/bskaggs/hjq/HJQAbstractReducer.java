@@ -14,7 +14,7 @@ import com.github.bskaggs.jjq.JJQ;
 import com.github.bskaggs.jjq.JJQConsumer;
 import com.github.bskaggs.jjq.JJQException;
 
-public class HJQReducer extends Reducer<Text, Text, Text, NullWritable> {
+public abstract class HJQAbstractReducer<K> extends Reducer<Text, Text, K, NullWritable> {
 	public final static String REDUCER_PROGRAM = "hjq.reducer.program";
 	public static void setReducerProgram(Job job, String program) {
 		job.getConfiguration().set(REDUCER_PROGRAM, program);
@@ -23,6 +23,8 @@ public class HJQReducer extends Reducer<Text, Text, Text, NullWritable> {
 	private JJQ jjq;
 	private ObjectMapper objectMapper = new ObjectMapper();
 
+	protected abstract K encode(String json);
+	
 	@Override
 	protected void setup(final Context context) throws IOException, InterruptedException {
 		super.setup(context);
@@ -31,7 +33,7 @@ public class HJQReducer extends Reducer<Text, Text, Text, NullWritable> {
 			@Override
 			public void accept(String json) {
 				try {
-					context.write(new Text(json), NullWritable.get());
+					context.write(encode(json), NullWritable.get());
 				} catch (IOException e) {
 				} catch (InterruptedException e) {
 				}
