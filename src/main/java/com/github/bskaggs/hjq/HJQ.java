@@ -1,5 +1,9 @@
 package com.github.bskaggs.hjq;
 
+import java.io.ByteArrayOutputStream;
+import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
+
 import org.apache.avro.Schema;
 import org.apache.avro.mapreduce.AvroJob;
 import org.apache.commons.cli.CommandLine;
@@ -8,7 +12,9 @@ import org.apache.commons.cli.DefaultParser;
 import org.apache.commons.cli.Options;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.conf.Configured;
+import org.apache.hadoop.fs.FSDataInputStream;
 import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.io.IOUtils;
 import org.apache.hadoop.io.NullWritable;
 import org.apache.hadoop.io.Text;
 import org.apache.hadoop.mapreduce.Job;
@@ -21,7 +27,7 @@ import org.apache.hadoop.util.ToolRunner;
 import com.github.bskaggs.avro_json_hadoop.AvroOrJsonKeyInputFormat;
 import com.github.bskaggs.avro_json_hadoop.JsonAsAvroOutputFormat;
 
-public class CLI extends Configured implements Tool{
+public class HJQ extends Configured implements Tool{
 	@Override
 	public int run(String[] args) throws Exception {
 		Configuration conf = getConf();
@@ -35,6 +41,7 @@ public class CLI extends Configured implements Tool{
 		options.addOption("o", "output", true, "Output directory");
 
 		options.addOption("a", "avro-schema", true, "Output schema; makes output files avro");
+		options.addOption(null, "avro-schema-file", true, "Output schema file; makes output files avro");
 		
 	    CommandLine line = parser.parse(options, args);
 	    
@@ -50,9 +57,9 @@ public class CLI extends Configured implements Tool{
 			job.setMapperClass(HJQKeyValueMapper.class);
 			job.setMapOutputKeyClass(Text.class);
 			job.setMapOutputValueClass(Text.class);
-			HJQAbstractReducer.setReducerProgram(job, reducerProgram);
 			
 			job.setReducerClass(HJQTextReducer.class);
+			HJQAbstractReducer.setReducerProgram(job, reducerProgram);
 			job.setOutputKeyClass(Text.class);
 			job.setOutputValueClass(NullWritable.class);
 		} else {
@@ -62,8 +69,22 @@ public class CLI extends Configured implements Tool{
 			job.setNumReduceTasks(0);
 		}
 		
-		//If there is a schema, output to avro
+		
 		String schemaString = line.getOptionValue("avro-schema");
+		
+		//If there is a schema file and no schema string, load the file
+		if (schemaString == null) {
+			String schemaPathString = line.getOptionValue("avro-schema-file");
+			if (schemaPathString != null) {
+				Path schemaPath = new Path(schemaPathString);
+				FSDataInputStream in = schemaPath.getFileSystem(conf).open(schemaPath);
+				ByteArrayOutputStream out = new ByteArrayOutputStream();
+				IOUtils.copyBytes(in, out, conf);
+				schemaString = StandardCharsets.UTF_8.decode(ByteBuffer.wrap(out.toByteArray())).toString();
+			} 
+		}
+		
+		//If there is a schema, output to avro
 		if (schemaString == null) {
 			job.setOutputFormatClass(TextOutputFormat.class);
 		} else {
@@ -75,7 +96,7 @@ public class CLI extends Configured implements Tool{
 	}
 
 	public static void main(String[] args) throws Exception {
-		System.exit(ToolRunner.run(new CLI(), args));
+		System.exit(ToolRunner.run(new HJQ(), args));
 	}
 	
 }
