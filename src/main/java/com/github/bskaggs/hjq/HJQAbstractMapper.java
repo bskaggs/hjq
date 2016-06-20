@@ -24,7 +24,7 @@ public class HJQAbstractMapper<KEYIN, VALUEIN, KEYOUT, VALUEOUT> extends Mapper<
 	protected void map(KEYIN key, VALUEIN value, Context context) throws IOException, InterruptedException {
 		try {
 			jjq.add(key.toString());
-			jjq.add(" ");
+			jjq.add("\n");
 		} catch (JJQException e) {
 			throw new IOException(e);
 		}

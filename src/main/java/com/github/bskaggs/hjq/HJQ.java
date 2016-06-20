@@ -8,7 +8,7 @@ import org.apache.avro.Schema;
 import org.apache.avro.mapreduce.AvroJob;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.CommandLineParser;
-import org.apache.commons.cli.DefaultParser;
+import org.apache.commons.cli.GnuParser;
 import org.apache.commons.cli.HelpFormatter;
 import org.apache.commons.cli.Options;
 import org.apache.hadoop.conf.Configuration;
@@ -27,47 +27,85 @@ import org.apache.hadoop.util.ToolRunner;
 
 import com.github.bskaggs.avro_json_hadoop.AvroOrJsonKeyInputFormat;
 import com.github.bskaggs.avro_json_hadoop.JsonAsAvroOutputFormat;
+import com.github.bskaggs.jjq.JJQ;
+import com.github.bskaggs.jjq.JJQCompilationException;
 
+/**
+ * Command-line runner for HJQ jobs.
+ * 
+ * @author bskaggs
+ *
+ */
 public class HJQ extends Configured implements Tool {
 	@Override
 	public int run(String[] args) throws Exception {
 		Configuration conf = getConf();
-		CommandLineParser parser = new DefaultParser();
+		Job job = Job.getInstance(conf);
+		
+		CommandLineParser parser = new GnuParser();
 
 		Options options = new Options();
 		
-		options.addOption("m", "mapper", true, "Mapper program");
-		options.addOption("c", "combiner", true, "Combiner program");
-		options.addOption("r", "reducer", true, "Reducer program");
-		options.addOption("n", "num-reducers", true, "Number of reducers (default: " + ")");
+		options.addOption("m", "mapper", true, "Mapper program (default is '.')");
+		options.addOption("c", "combiner", true, "Optional combiner program");
+		options.addOption("r", "reducer", true, "Optional reducer program");
+		options.addOption("n", "num-reducers", true, "Number of reducers (default: " + job.getNumReduceTasks() + ")");
 
 		options.addOption("i", "input", true, "Comma-separated input files/directories");
 		options.addOption("o", "output", true, "Output directory");
 
-		options.addOption("a", "avro-schema", true, "Output schema; makes output files avro");
-		options.addOption(null, "avro-schema-file", true, "Output schema file; makes output files avro");
+		options.addOption("a", "avro-schema", true, "Output schema string; makes output files in avro format");
+		options.addOption(null, "avro-schema-file", true, "Output schema file; makes output files in avro format");
 		
+		options.addOption("j", "job-name", true, "Name for Hadoop job.  (default is derived from mapper/reducer program strings)");
 		options.addOption("h", "help", false, "Print this help message");
 
 		CommandLine line = parser.parse(options, args);
 		if (line.hasOption("help")) {
 			HelpFormatter formatter = new HelpFormatter();
-			formatter.printHelp( "ant", options );
+			formatter.printHelp("hjq", "hjq makes it easy to run Hadoop Map/Reduce jobs using jq syntax on JSON/Avro files.", 
+					options,
+					"For more information, visit <https://github.com/bskaggs/hjq>. ");
+			
 			return -1;
 		}
 		
-		if (!line.hasOption("mapper")) {
-			System.err.println("Must specify at least mapper program.");
-			return(1);
+		String mapperProgram = line.getOptionValue("mapper");
+		if (mapperProgram != null) {
+			try {
+				new JJQ(mapperProgram, null);
+			} catch (JJQCompilationException ex) {
+				System.err.println("Error in mapper program: " + mapperProgram);
+				return -2;
+			}
 		}
 		
-		String mapperProgram = line.getOptionValue("mapper");
 		String combinerProgram = line.getOptionValue("combiner");
-		String reducerProgram = line.getOptionValue("reducer");
-
-		Job job = Job.getInstance(conf, "hjq: " + mapperProgram + (reducerProgram != null ? " -> " + reducerProgram : ""));
-
+		if (combinerProgram != null) {
+			try {
+				new JJQ(combinerProgram, null);
+			} catch (JJQCompilationException ex) {
+				System.err.println("Error in combiner program: " + combinerProgram);
+				return -3;
+			}
+		}
 		
+		String reducerProgram = line.getOptionValue("reducer");
+		if (reducerProgram != null) {
+			try {
+				new JJQ(reducerProgram, null);
+			} catch (JJQCompilationException ex) {
+				System.err.println("Error in reducer program: " + reducerProgram);
+				return -4;
+			}
+		}
+		
+		String jobName = line.getOptionValue("job-name");
+		if (jobName == null) {
+			jobName = "hjq: " + mapperProgram + (reducerProgram != null ? " -> " + reducerProgram : "");
+		}
+		job.setJobName(jobName);
+				
 		job.setInputFormatClass(AvroOrJsonKeyInputFormat.class);
 		
 		HJQAbstractMapper.setMapperProgram(job, mapperProgram);
@@ -87,7 +125,6 @@ public class HJQ extends Configured implements Tool {
 			HJQTextReducer.setReducerProgram(job, reducerProgram);
 			job.setOutputKeyClass(Text.class);
 			job.setOutputValueClass(NullWritable.class);
-			
 			
 			String numReducersString = line.getOptionValue("num-reducers");
 			if (numReducersString != null) {
@@ -111,20 +148,22 @@ public class HJQ extends Configured implements Tool {
 		}
 
 		String schemaString = line.getOptionValue("avro-schema");
-
+		String schemaPathString = line.getOptionValue("avro-schema-file");
+		
+		if (schemaString != null && schemaPathString != null) {
+			System.err.println("You must specify at most one of avro-schema or avro-schema-string, not both.");
+			return(1);
+		}
 		// If there is a schema file and no schema string, load the file
-		if (schemaString == null) {
-			String schemaPathString = line.getOptionValue("avro-schema-file");
-			if (schemaPathString != null) {
-				Path schemaPath = new Path(schemaPathString);
-				FSDataInputStream in = schemaPath.getFileSystem(conf).open(schemaPath);
-				ByteArrayOutputStream out = new ByteArrayOutputStream();
-				IOUtils.copyBytes(in, out, conf);
-				schemaString = StandardCharsets.UTF_8.decode(ByteBuffer.wrap(out.toByteArray())).toString();
-			}
+		if (schemaString == null && schemaPathString != null) {
+			Path schemaPath = new Path(schemaPathString);
+			FSDataInputStream in = schemaPath.getFileSystem(conf).open(schemaPath);
+			ByteArrayOutputStream out = new ByteArrayOutputStream();
+			IOUtils.copyBytes(in, out, conf);
+			schemaString = StandardCharsets.UTF_8.decode(ByteBuffer.wrap(out.toByteArray())).toString();
 		}
 
-		// If there is a schema, output to avro
+		// If there is no schema, output to Text, otherwise output to Avro
 		if (schemaString == null) {
 			job.setOutputFormatClass(TextOutputFormat.class);
 		} else {
@@ -138,5 +177,4 @@ public class HJQ extends Configured implements Tool {
 	public static void main(String[] args) throws Exception {
 		System.exit(ToolRunner.run(new HJQ(), args));
 	}
-
 }

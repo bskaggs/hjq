@@ -53,11 +53,11 @@ public abstract class HJQAbstractReducer<K, V> extends Reducer<Text, Text, K, V>
 				object.put("value", objectMapper.readValue(value.toString(), Object.class));
 
 				if (first) {
-					jjq.add(objectMapper.writeValueAsString(object));
 					first = false;
 				} else {
-					jjq.add("," + objectMapper.writeValueAsString(object));
+					jjq.add(",");
 				}
+				jjq.add(objectMapper.writeValueAsString(object));
 			}
 			jjq.add("] ");
 		} catch (JJQException e) {

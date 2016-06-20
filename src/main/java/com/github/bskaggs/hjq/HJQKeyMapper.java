@@ -31,6 +31,4 @@ public class HJQKeyMapper<KEYIN, VALUEIN> extends HJQAbstractMapper<KEYIN, VALUE
 			throw new IOException(e);
 		}
 	}
-	
-
 }
